@@ -7,4 +7,6 @@ edition = "2018"
 
 [dependencies]
 actix-web = "3.3.2"
+serde = "1.0.130"
+tera = "1.15.0"
 
