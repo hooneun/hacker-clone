@@ -1,9 +1,10 @@
-<!DOCTYPE html>
-<html lang="ko">
-  <head>
-    <title>{{title}}</title>
-  </head>
-  <body>
-    Hello, {{name}}
-  </body>
-</html>
+{% extends "base.html" %}
+
+{% block content %}        
+{% for post in posts %}
+<div>
+    <a href="{{ post.link }}">{{ post.title }}</a>
+    <small>{{ post.author }}</small>
+</div>
+{% endfor %}
+{% endblock %}
