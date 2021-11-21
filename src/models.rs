@@ -1,6 +1,6 @@
-use super::schema::users;
+use super::schema::{posts, users};
 use diesel::{Insertable, Queryable};
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 #[derive(Queryable)]
 pub struct User {
@@ -17,8 +17,44 @@ pub struct NewUser {
     pub email: String,
     pub password: String,
 }
+
 #[derive(Debug, Deserialize)]
 pub struct LoginUser {
     pub username: String,
     pub password: String,
+}
+
+#[derive(Deserialize)]
+pub struct PostForm {
+    title: String,
+    link: String,
+}
+
+#[derive(Debug, Queryable)]
+pub struct Post {
+    pub id: i32,
+    pub title: String,
+    pub link: Option<String>,
+    pub author: i32,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+#[derive(Serialize, Insertable)]
+#[table_name = "posts"]
+pub struct NewPost {
+    pub title: String,
+    pub link: String,
+    pub author: i32,
+    pub created_at: chrono::NaiveDateTime,
+}
+
+impl NewPost {
+    pub fn from_post_form(title: String, link: String, uid: i32) -> Self {
+        NewPost {
+            title,
+            link,
+            author: uid,
+            created_at: chrono::Local::now().naive_utc(),
+        }
+    }
 }

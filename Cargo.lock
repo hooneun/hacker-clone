@@ -81,7 +81,7 @@ dependencies = [
  "serde_urlencoded",
  "sha-1 0.9.8",
  "slab",
- "time",
+ "time 0.2.27",
 ]
 
 [[package]]
@@ -95,7 +95,7 @@ dependencies = [
  "futures-util",
  "serde",
  "serde_json",
- "time",
+ "time 0.2.27",
 ]
 
 [[package]]
@@ -261,7 +261,7 @@ dependencies = [
  "serde_json",
  "serde_urlencoded",
  "socket2",
- "time",
+ "time 0.2.27",
  "tinyvec",
  "url",
 ]
@@ -530,6 +530,8 @@ dependencies = [
  "libc",
  "num-integer",
  "num-traits",
+ "serde",
+ "time 0.1.43",
  "winapi 0.3.9",
 ]
 
@@ -589,7 +591,7 @@ dependencies = [
  "percent-encoding",
  "rand 0.8.4",
  "sha2",
- "time",
+ "time 0.2.27",
  "version_check",
 ]
 
@@ -679,6 +681,7 @@ checksum = "b28135ecf6b7d446b43e27e225622a038cc4e2930a1022f51cdb97ada19b8e4d"
 dependencies = [
  "bitflags",
  "byteorder",
+ "chrono",
  "diesel_derives",
  "pq-sys",
 ]
@@ -993,6 +996,7 @@ version = "0.1.0"
 dependencies = [
  "actix-identity",
  "actix-web",
+ "chrono",
  "diesel",
  "dotenv",
  "serde",
@@ -2051,6 +2055,16 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d050e60b33d41c19108b32cea32164033a9013fe3b46cbd4457559bfbf77afaa"
 dependencies = [
  "num_cpus",
+]
+
+[[package]]
+name = "time"
+version = "0.1.43"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ca8a50ef2360fbd1eeb0ecd46795a87a19024eb4b53c5dc916ca1fd95fe62438"
+dependencies = [
+ "libc",
+ "winapi 0.3.9",
 ]
 
 [[package]]
