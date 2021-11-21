@@ -22,19 +22,6 @@ fn establish_connection() -> PgConnection {
     PgConnection::establish(&database_url).expect(&format!("Error connection to {}", database_url))
 }
 
-#[derive(Serialize)]
-struct Post {
-    title: String,
-    link: String,
-    author: String,
-}
-
-#[derive(Deserialize)]
-struct PostForm {
-    title: String,
-    link: String,
-}
-
 #[derive(Debug, Deserialize)]
 struct Submission {
     title: String,
@@ -56,12 +43,19 @@ async fn process_signup(data: web::Form<NewUser>) -> impl Responder {
 }
 
 async fn index(tera: web::Data<Tera>) -> impl Responder {
+    use schema::posts::dsl::posts;
+    use schema::users::dsl::users;
+
+    let connection = establish_connection();
+    let all_posts: Vec<(Post, User)> = posts
+        .inner_join(users)
+        .load(&connection)
+        .expect("Error retrieving all posts");
+
     let mut data = Context::new();
 
-    let posts = "";
-
     data.insert("title", "Hacker Clone");
-    data.insert("posts", &posts);
+    data.insert("posts_users", &all_posts);
 
     let rendered = tera.render("index.html", &data).unwrap();
     HttpResponse::Ok().body(rendered)
@@ -135,9 +129,29 @@ async fn process_submission(data: web::Form<Submission>, id: Identity) -> impl R
         use schema::users::dsl::{username, users};
 
         let connection = establish_connection();
+        let user: Result<User, diesel::result::Error> =
+            users.filter(username.eq(id)).first(&connection);
+
+        match user {
+            Ok(u) => {
+                let new_post = NewPost::from_post_form(data.title.clone(), data.link.clone(), u.id);
+
+                use schema::posts;
+
+                diesel::insert_into(posts::table)
+                    .values(&new_post)
+                    .get_result::<Post>(&connection)
+                    .expect("Error saving post.");
+
+                return HttpResponse::Ok().body("Submitted.");
+            }
+            Err(e) => {
+                println!("{:?}", e);
+                return HttpResponse::Ok().body("Failed to find user.");
+            }
+        }
     }
-    println!("{:?}", data);
-    HttpResponse::Ok().body(format!("Posted submission: {}", data.title))
+    HttpResponse::Unauthorized().body("User not logged in")
 }
 
 #[actix_web::main]

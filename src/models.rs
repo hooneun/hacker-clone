@@ -2,7 +2,7 @@ use super::schema::{posts, users};
 use diesel::{Insertable, Queryable};
 use serde::{Deserialize, Serialize};
 
-#[derive(Queryable)]
+#[derive(Serialize, Queryable)]
 pub struct User {
     pub id: i32,
     pub username: String,
@@ -30,7 +30,7 @@ pub struct PostForm {
     link: String,
 }
 
-#[derive(Debug, Queryable)]
+#[derive(Debug, Serialize, Queryable)]
 pub struct Post {
     pub id: i32,
     pub title: String,
