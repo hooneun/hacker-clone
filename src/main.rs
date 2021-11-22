@@ -11,9 +11,12 @@ use tera::{Context, Tera};
 use argonautica::Verifier;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
+use diesel::r2d2::ConnectionManager;
 use dotenv::dotenv;
 
 use models::{Comment, LoginUser, NewComment, NewPost, NewUser, Post, User};
+
+type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
 fn establish_connection() -> PgConnection {
     dotenv().ok();
@@ -34,10 +37,10 @@ struct CommentForm {
     comment: String,
 }
 
-async fn process_signup(data: web::Form<NewUser>) -> impl Responder {
+async fn process_signup(data: web::Form<NewUser>, pool: web::Data<Pool>) -> impl Responder {
     use schema::users;
 
-    let connection = establish_connection();
+    let connection = pool.get().unwrap();
 
     let new_user = NewUser::new(
         data.username.clone(),
@@ -54,11 +57,11 @@ async fn process_signup(data: web::Form<NewUser>) -> impl Responder {
     HttpResponse::Ok().body(format!("Successfully saved user: {}", data.username))
 }
 
-async fn index(tera: web::Data<Tera>) -> impl Responder {
+async fn index(tera: web::Data<Tera>, pool: web::Data<Pool>) -> impl Responder {
     use schema::posts::dsl::posts;
     use schema::users::dsl::users;
 
-    let connection = establish_connection();
+    let connection = pool.get().unwrap();
     let all_posts: Vec<(Post, User)> = posts
         .inner_join(users)
         .load(&connection)
@@ -98,10 +101,14 @@ async fn logout(id: Identity) -> impl Responder {
     HttpResponse::Ok().body("Logged out")
 }
 
-async fn process_login(data: web::Form<LoginUser>, id: Identity) -> impl Responder {
+async fn process_login(
+    data: web::Form<LoginUser>,
+    pool: web::Data<Pool>,
+    id: Identity,
+) -> impl Responder {
     use schema::users::dsl::{username, users};
 
-    let connection = establish_connection();
+    let connection = pool.get().unwrap();
     let user = users
         .filter(username.eq(&data.username))
         .first::<User>(&connection);
@@ -145,11 +152,15 @@ async fn submission(tera: web::Data<Tera>, id: Identity) -> impl Responder {
     HttpResponse::Unauthorized().body("User not logged in")
 }
 
-async fn process_submission(data: web::Form<Submission>, id: Identity) -> impl Responder {
+async fn process_submission(
+    data: web::Form<Submission>,
+    pool: web::Data<Pool>,
+    id: Identity,
+) -> impl Responder {
     if let Some(id) = id.identity() {
         use schema::users::dsl::{username, users};
 
-        let connection = establish_connection();
+        let connection = pool.get().unwrap();
         let user: Result<User, diesel::result::Error> =
             users.filter(username.eq(id)).first(&connection);
 
@@ -178,12 +189,13 @@ async fn process_submission(data: web::Form<Submission>, id: Identity) -> impl R
 async fn post_page(
     tera: web::Data<Tera>,
     id: Identity,
+    pool: web::Data<Pool>,
     web::Path(post_id): web::Path<i32>,
 ) -> impl Responder {
     use schema::posts::dsl::posts;
     use schema::users::dsl::users;
 
-    let connection = establish_connection();
+    let connection = pool.get().unwrap();
 
     let post: Post = posts
         .find(post_id)
@@ -219,13 +231,14 @@ async fn post_page(
 async fn comment(
     data: web::Form<CommentForm>,
     id: Identity,
+    pool: web::Data<Pool>,
     web::Path(post_id): web::Path<i32>,
 ) -> impl Responder {
     if let Some(id) = id.identity() {
         use schema::posts::dsl::posts;
         use schema::users::dsl::{username, users};
 
-        let connection = establish_connection();
+        let connection = pool.get().unwrap();
 
         let post: Post = posts
             .find(post_id)
@@ -259,15 +272,27 @@ async fn comment(
 
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
+    dotenv().ok();
     let tera = Tera::new("templates/**/*").unwrap();
+    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+
+    let manager = ConnectionManager::<PgConnection>::new(database_url);
+    let pool = r2d2::Pool::builder()
+        .build(manager)
+        .expect("Failed to create postgres pool.");
+
+    //env_looger::init();
+
     HttpServer::new(move || {
         App::new()
+            //.wrap(Logger::default())
             .wrap(IdentityService::new(
                 CookieIdentityPolicy::new(&[0; 32])
                     .name("auth-cookie")
                     .secure(false),
             ))
             .data(tera.clone())
+            .data(pool.clone())
             .route("/", web::get().to(index))
             .route("/signup", web::get().to(signup))
             .route("/signup", web::post().to(process_signup))
