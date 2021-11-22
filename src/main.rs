@@ -5,9 +5,10 @@ pub mod schema;
 
 use actix_identity::{CookieIdentityPolicy, Identity, IdentityService};
 use actix_web::{web, App, HttpResponse, HttpServer, Responder};
-use serde::{Deserialize, Serialize};
+use serde::Deserialize;
 use tera::{Context, Tera};
 
+use actix_web::middleware::Logger;
 use argonautica::Verifier;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
@@ -18,13 +19,74 @@ use models::{Comment, LoginUser, NewComment, NewPost, NewUser, Post, User};
 
 type Pool = r2d2::Pool<ConnectionManager<PgConnection>>;
 
-fn establish_connection() -> PgConnection {
-    dotenv().ok();
-
-    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
-
-    PgConnection::establish(&database_url).expect(&format!("Error connection to {}", database_url))
+#[derive(Debug)]
+enum ServerError {
+    ArgonauticError,
+    DieselError,
+    EnvironmentError,
+    R2D2Error,
+    UserError(String),
 }
+
+impl From<argonautica::Error> for ServerError {
+    fn from(_: argonautica::Error) -> ServerError {
+        ServerError::ArgonauticError
+    }
+}
+
+impl From<std::env::VarError> for ServerError {
+    fn from(_: std::env::VarError) -> ServerError {
+        ServerError::EnvironmentError
+    }
+}
+
+impl From<r2d2::Error> for ServerError {
+    fn from(_: r2d2::Error) -> ServerError {
+        ServerError::R2D2Error
+    }
+}
+
+impl std::fmt::Display for ServerError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Test")
+    }
+}
+
+impl From<diesel::result::Error> for ServerError {
+    fn from(err: diesel::result::Error) -> ServerError {
+        match err {
+            diesel::result::Error::NotFound => {
+                log::error!("{:?}", err);
+                ServerError::UserError("Username not found.".to_string())
+            }
+            _ => ServerError::DieselError,
+        }
+    }
+}
+
+impl actix_web::error::ResponseError for ServerError {
+    fn error_response(&self) -> HttpResponse {
+        match self {
+            ServerError::ArgonauticError => {
+                HttpResponse::InternalServerError().json("Argonautica Error.")
+            }
+            ServerError::DieselError => HttpResponse::InternalServerError().json("Diesel Error."),
+            ServerError::EnvironmentError => {
+                HttpResponse::InternalServerError().json("Environment Error.")
+            }
+            ServerError::R2D2Error => HttpResponse::InternalServerError().json("R2d2 Error."),
+            ServerError::UserError(data) => HttpResponse::InternalServerError().json(data),
+        }
+    }
+}
+
+//fn establish_connection() -> PgConnection {
+//    dotenv().ok();
+//
+//    let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
+//
+//    PgConnection::establish(&database_url).expect(&format!("Error connection to {}", database_url))
+//}
 
 #[derive(Debug, Deserialize)]
 struct Submission {
@@ -105,38 +167,29 @@ async fn process_login(
     data: web::Form<LoginUser>,
     pool: web::Data<Pool>,
     id: Identity,
-) -> impl Responder {
+) -> Result<HttpResponse, ServerError> {
     use schema::users::dsl::{username, users};
 
-    let connection = pool.get().unwrap();
+    let connection = pool.get()?;
     let user = users
         .filter(username.eq(&data.username))
-        .first::<User>(&connection);
+        .first::<User>(&connection)?;
 
-    match user {
-        Ok(u) => {
-            dotenv().ok();
-            let secret = std::env::var("SECRET_KEY").expect("SECRET_KEY must be set");
+    dotenv().ok();
+    let secret = std::env::var("SECRET_KEY")?;
 
-            let valid = Verifier::default()
-                .with_hash(u.password)
-                .with_password(data.password.clone())
-                .with_secret_key(secret)
-                .verify()
-                .unwrap();
+    let valid = Verifier::default()
+        .with_hash(user.password)
+        .with_password(data.password.clone())
+        .with_secret_key(secret)
+        .verify()?;
 
-            if valid {
-                let session_token = String::from(u.username);
-                id.remember(session_token);
-                HttpResponse::Ok().body(format!("Logged in: {}", data.username))
-            } else {
-                HttpResponse::Ok().body("Password is incorrect.")
-            }
-        }
-        Err(e) => {
-            println!("{:?}", e);
-            HttpResponse::Ok().body("User doesnt't exist.")
-        }
+    if valid {
+        let session_token = String::from(user.username);
+        id.remember(session_token);
+        Ok(HttpResponse::Ok().body(format!("Logged in: {}", data.username)))
+    } else {
+        Ok(HttpResponse::Ok().body("Password is incorrect."))
     }
 }
 
@@ -144,7 +197,7 @@ async fn submission(tera: web::Data<Tera>, id: Identity) -> impl Responder {
     let mut data = Context::new();
     data.insert("title", "Submit a Post");
 
-    if let Some(id) = id.identity() {
+    if let Some(_id) = id.identity() {
         let rendered = tera.render("submission.html", &data).unwrap();
         return HttpResponse::Ok().body(rendered);
     }
@@ -273,6 +326,8 @@ async fn comment(
 #[actix_web::main]
 async fn main() -> std::io::Result<()> {
     dotenv().ok();
+    env_logger::init();
+
     let tera = Tera::new("templates/**/*").unwrap();
     let database_url = std::env::var("DATABASE_URL").expect("DATABASE_URL must be set");
 
@@ -285,7 +340,7 @@ async fn main() -> std::io::Result<()> {
 
     HttpServer::new(move || {
         App::new()
-            //.wrap(Logger::default())
+            .wrap(Logger::default())
             .wrap(IdentityService::new(
                 CookieIdentityPolicy::new(&[0; 32])
                     .name("auth-cookie")
