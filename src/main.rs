@@ -8,6 +8,7 @@ use actix_web::{web, App, HttpResponse, HttpServer, Responder};
 use serde::{Deserialize, Serialize};
 use tera::{Context, Tera};
 
+use argonautica::Verifier;
 use diesel::pg::PgConnection;
 use diesel::prelude::*;
 use dotenv::dotenv;
@@ -38,8 +39,14 @@ async fn process_signup(data: web::Form<NewUser>) -> impl Responder {
 
     let connection = establish_connection();
 
+    let new_user = NewUser::new(
+        data.username.clone(),
+        data.email.clone(),
+        data.password.clone(),
+    );
+
     diesel::insert_into(users::table)
-        .values(&*data)
+        .values(&new_user)
         .get_result::<User>(&connection)
         .expect("Error registering user.");
 
@@ -78,7 +85,7 @@ async fn login(tera: web::Data<Tera>, id: Identity) -> impl Responder {
     let mut data = Context::new();
     data.insert("title", "Login");
 
-    if let Some(id) = id.identity() {
+    if let Some(_id) = id.identity() {
         return HttpResponse::Ok().body("Already logged in");
     }
 
@@ -101,10 +108,19 @@ async fn process_login(data: web::Form<LoginUser>, id: Identity) -> impl Respond
 
     match user {
         Ok(u) => {
-            if u.password == data.password {
+            dotenv().ok();
+            let secret = std::env::var("SECRET_KEY").expect("SECRET_KEY must be set");
+
+            let valid = Verifier::default()
+                .with_hash(u.password)
+                .with_password(data.password.clone())
+                .with_secret_key(secret)
+                .verify()
+                .unwrap();
+
+            if valid {
                 let session_token = String::from(u.username);
                 id.remember(session_token);
-                println!("{:?}", data);
                 HttpResponse::Ok().body(format!("Logged in: {}", data.username))
             } else {
                 HttpResponse::Ok().body("Password is incorrect.")

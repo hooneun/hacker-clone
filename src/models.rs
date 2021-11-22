@@ -1,5 +1,7 @@
 use super::schema::{comments, posts, users};
+use argonautica::Hasher;
 use diesel::{Insertable, Queryable};
+use dotenv::dotenv;
 use serde::{Deserialize, Serialize};
 
 #[derive(Serialize, Queryable)]
@@ -16,6 +18,26 @@ pub struct NewUser {
     pub username: String,
     pub email: String,
     pub password: String,
+}
+
+impl NewUser {
+    pub fn new(username: String, email: String, password: String) -> Self {
+        dotenv().ok();
+
+        let secret = std::env::var("SECRET_KEY").expect("SECRET_KEY must be set");
+
+        let hash = Hasher::default()
+            .with_password(password)
+            .with_secret_key(secret)
+            .hash()
+            .unwrap();
+
+        NewUser {
+            username,
+            email,
+            password: hash,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
